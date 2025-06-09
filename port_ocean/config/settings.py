@@ -1,12 +1,12 @@
 from typing import Any, Literal, Type, cast
 
-from pydantic import AnyHttpUrl, Extra, parse_obj_as, parse_raw_as
+from pydantic import Extra, AnyHttpUrl, parse_obj_as, parse_raw_as
 from pydantic.class_validators import root_validator, validator
-from pydantic.env_settings import BaseSettings, EnvSettingsSource, InitSettingsSource
+from pydantic.env_settings import InitSettingsSource, EnvSettingsSource, BaseSettings
 from pydantic.fields import Field
 from pydantic.main import BaseModel
 
-from port_ocean.config.base import BaseOceanModel, BaseOceanSettings
+from port_ocean.config.base import BaseOceanSettings, BaseOceanModel
 from port_ocean.core.event_listener import EventListenerSettingsType
 from port_ocean.core.models import CreatePortResourcesOrigin, Runtime
 from port_ocean.utils.misc import get_integration_name, get_spec_file
@@ -61,11 +61,6 @@ class IntegrationSettings(BaseOceanModel, extra=Extra.allow):
         return values
 
 
-class MetricsSettings(BaseOceanModel, extra=Extra.allow):
-    enabled: bool = Field(default=False)
-    webhook_url: str | None = Field(default=None)
-
-
 class IntegrationConfiguration(BaseOceanSettings, extra=Extra.allow):
     _integration_config_model: BaseModel | None = None
 
@@ -76,8 +71,6 @@ class IntegrationConfiguration(BaseOceanSettings, extra=Extra.allow):
     # Determines if Port should generate resources such as blueprints and pages instead of ocean
     create_port_resources_origin: CreatePortResourcesOrigin | None = None
     send_raw_data_examples: bool = True
-    oauth_access_token_file_path: str | None = None
-    base_url: str | None = None
     port: PortSettings
     event_listener: EventListenerSettingsType = Field(
         default=cast(EventListenerSettingsType, {"type": "POLLING"})
@@ -88,25 +81,22 @@ class IntegrationConfiguration(BaseOceanSettings, extra=Extra.allow):
     )
     runtime: Runtime = Runtime.OnPrem
     resources_path: str = Field(default=".port/resources")
-    metrics: MetricsSettings = Field(
-        default_factory=lambda: MetricsSettings(enabled=False, webhook_url=None)
-    )
-    max_event_processing_seconds: float = 90.0
-    max_wait_seconds_before_shutdown: float = 5.0
 
-    @validator("metrics", pre=True)
-    def validate_metrics(cls, v: Any) -> MetricsSettings | dict[str, Any] | None:
-        if v is None:
-            return MetricsSettings(enabled=False, webhook_url=None)
-        if isinstance(v, dict):
-            return v
-        if isinstance(v, MetricsSettings):
-            return v
-        # Try to convert to dict for other types
-        try:
-            return dict(v)
-        except (TypeError, ValueError):
-            return MetricsSettings(enabled=False, webhook_url=None)
+    @root_validator(pre=True)
+    def convert_camel_to_snake_case(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # Recursively convert all dict keys from camelCase to snake_case
+        import re
+        def camel_to_snake(name):
+            s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+            return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+        def convert(obj):
+            if isinstance(obj, dict):
+                return {camel_to_snake(k): convert(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert(i) for i in obj]
+            else:
+                return obj
+        return convert(values)
 
     @root_validator()
     def validate_integration_config(cls, values: dict[str, Any]) -> dict[str, Any]:
