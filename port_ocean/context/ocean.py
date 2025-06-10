@@ -1,20 +1,16 @@
 from typing import Callable, TYPE_CHECKING, Any, Literal, Union
 
 from fastapi import APIRouter
-from port_ocean.helpers.metric.metric import Metrics
 from pydantic.main import BaseModel
 from werkzeug.local import LocalProxy
 
 from port_ocean.clients.port.types import UserAgentType
-
 from port_ocean.core.models import Entity
 from port_ocean.core.ocean_types import (
     RESYNC_EVENT_LISTENER,
     START_EVENT_LISTENER,
     RawEntityDiff,
     EntityDiff,
-    BEFORE_RESYNC_EVENT_LISTENER,
-    AFTER_RESYNC_EVENT_LISTENER,
 )
 from port_ocean.exceptions.context import (
     PortOceanContextNotFoundError,
@@ -43,10 +39,6 @@ class PortOceanContext:
         return self._app
 
     @property
-    def metrics(self) -> Metrics:
-        return self.app.metrics
-
-    @property
     def initialized(self) -> bool:
         return self._app is not None
 
@@ -64,9 +56,18 @@ class PortOceanContext:
 
     @property
     def integration_config(self) -> dict[str, Any]:
-        if isinstance(self.app.config.integration.config, BaseModel):
-            return self.app.config.integration.config.dict()
-        return self.app.config.integration.config
+        config = self.app.config.integration.config
+        # If it's a Pydantic model, use dict()
+        if isinstance(config, BaseModel):
+            return config.dict()
+        # If it's a dict, convert camelCase keys to snake_case for compatibility
+        if isinstance(config, dict):
+            def camel_to_snake(name):
+                import re
+                s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+                return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+            return {camel_to_snake(k): v for k, v in config.items()}
+        return config
 
     @property
     def port_client(self) -> "PortClient":
@@ -87,7 +88,7 @@ class PortOceanContext:
         ) -> RESYNC_EVENT_LISTENER | None:
             if not self.app.config.event_listener.should_resync:
                 logger.debug(
-                    f"Using event listener {self.app.config.event_listener.type}, which shouldn't perform any resyncs. Skipping resyncs setup..."
+                    "Webhook only event listener is used, resync events are ignored"
                 )
                 return None
             return self.integration.on_resync(function, kind)
@@ -97,40 +98,6 @@ class PortOceanContext:
     def on_start(self) -> Callable[[START_EVENT_LISTENER], START_EVENT_LISTENER]:
         def wrapper(function: START_EVENT_LISTENER) -> START_EVENT_LISTENER:
             return self.integration.on_start(function)
-
-        return wrapper
-
-    def on_resync_start(
-        self,
-    ) -> Callable[
-        [BEFORE_RESYNC_EVENT_LISTENER | None], BEFORE_RESYNC_EVENT_LISTENER | None
-    ]:
-        def wrapper(
-            function: BEFORE_RESYNC_EVENT_LISTENER | None,
-        ) -> BEFORE_RESYNC_EVENT_LISTENER | None:
-            if not self.app.config.event_listener.should_resync:
-                logger.debug(
-                    f"Using event listener {self.app.config.event_listener.type}, which shouldn't perform any resyncs. Skipping resyncs setup..."
-                )
-                return None
-            return self.integration.on_resync_start(function)
-
-        return wrapper
-
-    def on_resync_complete(
-        self,
-    ) -> Callable[
-        [AFTER_RESYNC_EVENT_LISTENER | None], AFTER_RESYNC_EVENT_LISTENER | None
-    ]:
-        def wrapper(
-            function: AFTER_RESYNC_EVENT_LISTENER | None,
-        ) -> AFTER_RESYNC_EVENT_LISTENER | None:
-            if not self.app.config.event_listener.should_resync:
-                logger.debug(
-                    f"Using event listener {self.app.config.event_listener.type}, which shouldn't perform any resyncs. Skipping resyncs setup..."
-                )
-                return None
-            return self.integration.on_resync_complete(function)
 
         return wrapper
 
@@ -186,32 +153,6 @@ class PortOceanContext:
 
     async def sync_raw_all(self) -> None:
         await self.integration.sync_raw_all(trigger_type="manual")
-
-    def add_webhook_processor(self, path: str, processor: type) -> None:
-        """
-        Registers a webhook processor for a specific path.
-
-        Args:
-            path: The path to register the webhook processor for.
-            processor: The processor to register.
-        Examples:
-            >>> from port_ocean.context.ocean import ocean
-            >>> from port_ocean.core.handlers.webhook import AbstractWebhookProcessor
-            >>> from port_ocean.core.handlers.webhook import WebhookEvent
-            >>> class MyWebhookProcessor(AbstractWebhookProcessor):
-            ...     async def authenticate(self, payload: EventPayload, headers: EventHeaders) -> bool:
-            ...         return True
-            ...     async def validate_payload(self, payload: EventPayload) -> bool:
-            ...         return True
-            ...     async def handle_event(self, payload: EventPayload) -> None:
-            ...         pass
-            >>> def events_filter(event: WebhookEvent) -> bool:
-            ...     return True
-            >>> ocean.add_webhook_processor('/my-webhook', MyWebhookProcessor, events_filter)
-        Raises:
-            ValueError: If the processor does not extend AbstractWebhookProcessor.
-        """
-        self.app.webhook_manager.register_processor(path, processor)
 
 
 _port_ocean: PortOceanContext = PortOceanContext(None)
