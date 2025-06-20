@@ -34,6 +34,12 @@ FIVE_MINUETS = 60 * 5
 def _get_http_client_context(port_client: "PortClient") -> httpx.AsyncClient:
     client = _http_client.top
     if client is None:
+        # Try to get timeout from integration config, fallback to default
+        try:
+            timeout_value = getattr(port_client.context.config, "client_timeout", PORT_HTTP_TIMEOUT)
+        except Exception:
+            timeout_value = PORT_HTTP_TIMEOUT
+        timeout = httpx.Timeout(timeout_value)
         client = OceanAsyncClient(
             TokenRetryTransport,
             transport_kwargs={
@@ -41,7 +47,7 @@ def _get_http_client_context(port_client: "PortClient") -> httpx.AsyncClient:
                 "max_backoff_wait": FIVE_MINUETS,
                 "base_delay": 0.3,
             },
-            timeout=PORT_HTTPX_TIMEOUT,
+            timeout=timeout,
             limits=PORT_HTTPX_LIMITS,
         )
         _http_client.push(client)
