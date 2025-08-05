@@ -41,6 +41,7 @@ class StatusPageClient:
     async def _get_paginated_resources(
         self, url: str, params: dict[str, Any] = {}
     ) -> AsyncGenerator[list[dict[str, Any]], None]:
+        params = dict(params)
         page = 1
         while True:
             params["page"] = page
