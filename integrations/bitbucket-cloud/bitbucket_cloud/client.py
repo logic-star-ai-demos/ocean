@@ -110,7 +110,9 @@ class BitbucketClient:
                 if values := response.get(data_key, []):
                     yield values
                 url = response.get("next")
-                if not url:
+                if url:  # 'next' already includes query parameters
+                    params = None
+                else:
                     break
 
     async def _send_paginated_api_request(
@@ -138,7 +140,9 @@ class BitbucketClient:
             if values := response.get(data_key, []):
                 yield values
             url = response.get("next")
-            if not url:
+            if url:  # 'next' already includes query parameters
+                params = None
+            else:
                 break
 
     async def get_projects(self) -> AsyncGenerator[list[dict[str, Any]], None]:
