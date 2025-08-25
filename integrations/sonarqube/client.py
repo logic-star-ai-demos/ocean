@@ -121,11 +121,6 @@ class SonarQubeClient:
             logger.error(
                 f"HTTP error with status code: {e.response.status_code} and response text: {e.response.text}"
             )
-            if e.response.status_code == 404:
-                logger.warning(
-                    f"Resource not found for endpoint {endpoint} with query params {query_params}: {e.response.text}"
-                )
-                return {}
             raise
 
     async def _send_paginated_request(
@@ -361,7 +356,7 @@ class SonarQubeClient:
     async def get_issues_by_component(
         self,
         component: dict[str, Any],
-        query_params: dict[str, Any] = {},
+        query_params: Optional[dict[str, Any]] = None,
     ) -> AsyncGenerator[list[dict[str, Any]], None]:
         """
         Retrieve issues data across a single component (in this case, project) from SonarQube API.
@@ -370,6 +365,7 @@ class SonarQubeClient:
 
         :return (list[Any]): A list containing issues data for the specified component.
         """
+        query_params = query_params or {}
         component_key = component.get("key")
 
         if self.is_onpremise:
