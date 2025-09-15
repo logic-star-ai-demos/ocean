@@ -78,14 +78,31 @@ class HTTPMemoryHandler(MemoryHandler):
             return
 
         def _wrap_event_loop(_ocean: Ocean, logs_to_send: list[dict[str, Any]]) -> None:
+            """Send logs in a private event loop running in a worker thread.
+
+            The thread drops itself from ``self._thread_pool`` when finished.
+            """
             loop = asyncio.new_event_loop()
-            loop.run_until_complete(self.send_logs(_ocean, logs_to_send))
-            loop.close()
+            try:
+                loop.run_until_complete(self.send_logs(_ocean, logs_to_send))
+            finally:
+                loop.close()
+            # Remove finished thread from pool.
+            try:
+                self._thread_pool.remove(threading.current_thread())
+            except ValueError:
+                # The pool might have been cleared concurrently.
+                pass
 
         def clear_thread_pool() -> None:
+            """Clean up ``self._thread_pool`` by joining completed threads."""
+            alive_threads: list[threading.Thread] = []
             for thread in self._thread_pool:
-                if not thread.is_alive():
-                    self._thread_pool.remove(thread)
+                if thread.is_alive():
+                    alive_threads.append(thread)
+                else:
+                    thread.join(timeout=0)
+            self._thread_pool = alive_threads
 
         self.acquire()
         logs = list(self._serialized_buffer)
