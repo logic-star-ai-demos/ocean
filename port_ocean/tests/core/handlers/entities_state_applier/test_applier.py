@@ -286,3 +286,16 @@ async def test_upsert_groups_entities_by_blueprint(
         assert blueprint_counts["deployment"] == 1
         assert blueprint_counts["user"] == 1
         assert len(blueprint_counts) == 3
+
+
+@pytest.mark.asyncio
+async def test_delete_diff_unhashable_identifier(mock_context: PortOceanContext) -> None:
+    applier = HttpEntitiesStateApplier(mock_context)
+    entities = EntityDiff(
+        before=[Entity(identifier={'a': 1}, blueprint='test')],
+        after=[Entity(identifier={'a': 1}, blueprint='test')],
+    )
+
+    with patch.object(applier, "_safe_delete") as mock_safe_delete:
+        # This will raise TypeError due to unhashable identifier when building dict keys in get_port_diff
+        await applier.delete_diff(entities, UserAgentType.exporter)

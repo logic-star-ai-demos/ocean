@@ -49,20 +49,14 @@ from port_ocean.helpers.metric.metric import (
     MetricPhase,
 )
 from port_ocean.helpers.metric.utils import TimeMetric, TimeMetricWithResourceKind
+from port_ocean.core.utils.utils import _entity_key
 from port_ocean.utils.ipc import FileIPC
 
 SEND_RAW_DATA_EXAMPLES_AMOUNT = 5
 
 
 class SyncRawMixin(HandlerMixin, EventsMixin):
-    """Mixin class for synchronization of raw constructed entities.
-
-    This mixin class extends the functionality of HandlerMixin and EventsMixin to provide methods for registering,
-    unregistering, updating, and syncing raw entities' state changes.
-
-    Note:
-        Raw entities are entities with a more primitive structure, usually fetched directly from a resource.
-    """
+    """Mixin providing methods to sync raw entities' state."""
 
     def __init__(self) -> None:
         HandlerMixin.__init__(self)
@@ -488,18 +482,7 @@ class SyncRawMixin(HandlerMixin, EventsMixin):
         results: list[dict[Any, Any]],
         user_agent_type: UserAgentType,
     ) -> list[Entity]:
-        """Register raw entities of a specific kind.
-
-        This method registers raw entities of a specific kind into Port.
-
-        Args:
-            kind (str): The kind of raw entities being registered.
-            results (list[dict[Any, Any]]): The raw entity results to be registered.
-            user_agent_type (UserAgentType): The type of user agent.
-
-        Returns:
-            list[Entity]: A list of registered entities.
-        """
+        """Register raw entities of a given kind and return the registered entities."""
         logger.info(f"Registering state for {kind}")
         config = await self.port_app_config_handler.get_port_app_config()
         resource_mappings = [
@@ -535,7 +518,7 @@ class SyncRawMixin(HandlerMixin, EventsMixin):
         registered_entities, entities_to_delete = zip_and_sum(diffs)
 
         registered_entities_attributes = {
-            (entity.identifier, entity.blueprint) for entity in registered_entities
+            _entity_key(entity) for entity in registered_entities
         }
 
         filtered_entities_to_delete: list[Entity] = (
@@ -545,7 +528,7 @@ class SyncRawMixin(HandlerMixin, EventsMixin):
                     entity
                     for entity in entities_to_delete
                     if not entity.is_using_search_identifier
-                    and (entity.identifier, entity.blueprint)
+                    and _entity_key(entity)
                     not in registered_entities_attributes
                 ],
             )
