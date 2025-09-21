@@ -118,13 +118,28 @@ class DynatraceClient:
     ) -> list[dict[str, Any]]:
         logger.info(f"Fetching related entities for {len(slos)} slos")
 
-        related_slo_tasks = [
-            self._get_slo_related_entities(slo["filter"]) for slo in slos
-        ]
-        results = await asyncio.gather(*related_slo_tasks)
 
-        for slo, entities in zip(slos, results):
-            slo["__entities"] = entities
+        related_slo_tasks = []
+        for slo in slos:
+            query = slo.get("filter")
+            if not query:
+                async def _missing_filter_error():
+                    raise ValueError("Missing entity filter for SLO")
+                related_slo_tasks.append(_missing_filter_error())
+            else:
+                related_slo_tasks.append(self._get_slo_related_entities(query))
+
+        results = await asyncio.gather(*related_slo_tasks, return_exceptions=True)
+
+        for slo, res in zip(slos, results):
+            if isinstance(res, Exception):
+                logger.error(
+                    f"Failed fetching related entities for SLO {slo.get('id')}: {res}"
+                )
+                slo["__entities"] = []
+                slo["__entity_fetch_error"] = str(res)
+            else:
+                slo["__entities"] = res
         return slos
 
     async def get_teams(self) -> AsyncGenerator[list[dict[str, Any]], None]:

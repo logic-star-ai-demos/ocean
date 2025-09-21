@@ -164,3 +164,49 @@ class TestAsyncPaginator:
                 results.extend(items)
 
             assert len(results) == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_slos_with_related_entities_gather_failure(monkeypatch) -> None:
+    """Reproducing test: one SLO causes get_entities to raise HTTPStatusError.
+
+    Expected (after fix): enrich_slos_with_related_entities should return partial results
+    where the successful SLOs have __entities and failing SLOs are annotated with an error.
+
+    Current behavior (bug): asyncio.gather propagates the exception and the call raises HTTPStatusError
+    causing the enrichment to abort. This test expects the fixed behavior, so it should fail
+    against the current implementation.
+    """
+    from integrations.dynatrace.client import DynatraceClient
+    from httpx import Request, Response, HTTPStatusError
+
+    # Create client instance
+    client = DynatraceClient("https://example.com", "fake-token")
+
+    slos = [
+        {"id": "slo_ok", "filter": 'type("SERVICE")'},
+        {"id": "slo_bad", "filter": "invalid_selector"},
+    ]
+
+    async def fake_get_entities(query, fields):
+        # Simulate HTTP 400 for the invalid selector
+        if query == "invalid_selector":
+            req = Request("GET", f"{client.host_url}/entities")
+            resp = Response(400, request=req, content=b'{"error":{"code":400,"message":"Constraints violated."}}')
+            raise HTTPStatusError("HTTP error on entities", request=req, response=resp)
+        # For valid queries, yield one entity
+        yield [{"entityId": "entity-1"}]
+
+    # Patch the client's get_entities method to our fake
+    monkeypatch.setattr(client, "get_entities", fake_get_entities)
+
+    # The test asserts the desired (fixed) behavior: partial success
+    enriched = await client.enrich_slos_with_related_entities(slos)
+
+    # First SLO should have entities
+    assert enriched[0]["__entities"] == [{"entityId": "entity-1"}]
+
+    # Second SLO should be annotated with an empty list and an error field
+    assert isinstance(enriched[1].get("__entities"), list)
+    assert enriched[1].get("__entities") == []
+    assert "__entity_fetch_error" in enriched[1]
