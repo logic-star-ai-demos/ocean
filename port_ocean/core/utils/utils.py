@@ -79,6 +79,31 @@ async def gather_and_split_errors_from_results(
     return valid_items, errors
 
 
+def _freeze_for_key(value: Any) -> Any:
+    """Return a stable, hashable representation for value suitable as a dict key.
+
+    Handles dicts, lists/tuples, and sets; falls back to repr() for unhashable objects.
+    """
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    if isinstance(value, dict):
+        return tuple((k, _freeze_for_key(v)) for k, v in sorted(value.items(), key=lambda kv: repr(kv[0])))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_for_key(v) for v in value)
+    if isinstance(value, (set, frozenset)):
+        frozen_items = [_freeze_for_key(v) for v in value]
+        return tuple(sorted(frozen_items, key=lambda x: repr(x)))
+    try:
+        hash(value)
+        return value
+    except TypeError:
+        return repr(value)
+
+
+def _entity_key(entity: Entity) -> tuple[Any, Any]:
+    return (_freeze_for_key(entity.identifier), _freeze_for_key(entity.blueprint))
+
+
 def get_port_diff(before: Iterable[Entity], after: Iterable[Entity]) -> EntityPortDiff:
     before_dict = {}
     after_dict = {}
@@ -88,11 +113,11 @@ def get_port_diff(before: Iterable[Entity], after: Iterable[Entity]) -> EntityPo
 
     # Create dictionaries for before and after lists
     for entity in before:
-        key = (entity.identifier, entity.blueprint)
+        key = _entity_key(entity)
         before_dict[key] = entity
 
     for entity in after:
-        key = (entity.identifier, entity.blueprint)
+        key = _entity_key(entity)
         after_dict[key] = entity
 
     # Find created, modified, and deleted objects
@@ -175,13 +200,13 @@ def resolve_entities_diff(
     changed_entities = []
 
     for entity in target_entities:
-        key = (entity.identifier, entity.blueprint)
+        key = _entity_key(entity)
         target_entities_dict[key] = entity
 
     for entity in source_entities:
         if entity.is_using_search_identifier or entity.is_using_search_relation:
             return source_entities
-        key = (entity.identifier, entity.blueprint)
+        key = _entity_key(entity)
         source_entities_dict[key] = entity
 
         entity_at_target = target_entities_dict.get(key, None)
