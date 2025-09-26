@@ -6,11 +6,20 @@ from port_ocean.core.ocean_types import ASYNC_GENERATOR_RESYNC_TYPE
 
 
 def init_clients() -> list[KafkaClient]:
+    # Allow cluster_conf_mapping to be provided as a JSON string (e.g., via GitHub secrets)
+    mapping = ocean.integration_config.get("cluster_conf_mapping", {})
+    if isinstance(mapping, str):
+        try:
+            import json
+            mapping = json.loads(mapping)
+        except Exception:
+            # If parsing fails, treat as empty mapping to avoid runtime errors
+            mapping = {}
+    if not isinstance(mapping, dict):
+        mapping = {}
     return [
         KafkaClient(re.sub(r"[^A-Za-z0-9@_.:/=-]", "", cluster_name), conf)
-        for cluster_name, conf in ocean.integration_config[
-            "cluster_conf_mapping"
-        ].items()
+        for cluster_name, conf in mapping.items()
     ]
 
 
