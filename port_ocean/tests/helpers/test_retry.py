@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import Mock
 from http import HTTPStatus
 import httpx
+import asyncio
 
 from port_ocean.helpers.retry import (
     RetryConfig,
@@ -307,3 +308,59 @@ class TestRetryConfigIntegration:
             "Retry-After",
         ]
         assert HTTPStatus.FORBIDDEN in transport._retry_config.retry_status_codes
+
+
+async def test_retry_operation_async_respects_retry_after_header(monkeypatch) -> None:
+    """Ensure _calculate_sleep receives response headers (e.g., Retry-After) on retry.
+    This test simulates a server returning 429 with a Retry-After header, then a 200.
+    The current implementation incorrectly calls _calculate_sleep with an empty dict, so
+    this test will fail until the implementation is fixed to pass response.headers.
+    """
+    mock_transport = Mock()
+    transport = RetryTransport(wrapped_transport=mock_transport)
+
+    request = httpx.Request("GET", "https://example.com")
+
+    # Simulate send_method that returns 429 with Retry-After on first call, then 200
+    calls = {"count": 0}
+
+    async def send_method(req: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "3"}, content=b"", request=req)
+        return httpx.Response(200, headers={}, content=b"", request=req)
+
+    # Capture sleep durations without actually sleeping
+    captured_sleep: list[float] = []
+
+    async def fake_sleep(duration: float) -> None:
+        captured_sleep.append(duration)
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    # Wrap _calculate_sleep to capture the headers argument passed in
+    original_calc = transport._calculate_sleep
+
+    captured_headers: list[dict] = []
+
+    def wrapped_calculate_sleep(attempts_made: int, headers: dict) -> float:
+        # Convert headers to a plain dict for assertion
+        try:
+            captured_headers.append(dict(headers))
+        except Exception:
+            captured_headers.append({})
+        return original_calc(attempts_made, headers)
+
+    transport._calculate_sleep = wrapped_calculate_sleep  # type: ignore[assignment]
+
+    # Run retry operation
+    response = await transport._retry_operation_async(request, send_method)
+
+    assert response.status_code == 200
+    # We expect at least one sleep (retry occurred)
+    assert len(captured_sleep) >= 1
+    # We expect headers to contain 'Retry-After' from the failed response
+    assert any("Retry-After" in h and h.get("Retry-After") == "3" for h in captured_headers), (
+        f"_calculate_sleep was not passed Retry-After headers, captured: {captured_headers}"
+    )

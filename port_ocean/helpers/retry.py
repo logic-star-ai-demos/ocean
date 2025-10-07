@@ -449,7 +449,8 @@ class RetryTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
         error: Exception | None = None
         while True:
             if attempts_made > 0:
-                sleep_time = self._calculate_sleep(attempts_made, {})
+                headers = response.headers if response is not None else {}
+                sleep_time = self._calculate_sleep(attempts_made, headers)
                 self._log_before_retry(request, sleep_time, response, error)
                 await asyncio.sleep(sleep_time)
 
@@ -500,7 +501,8 @@ class RetryTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
 
         while True:
             if attempts_made > 0:
-                sleep_time = self._calculate_sleep(attempts_made, {})
+                headers = response.headers if response is not None else {}
+                sleep_time = self._calculate_sleep(attempts_made, headers)
                 self._log_before_retry(request, sleep_time, response, error)
                 time.sleep(sleep_time)
 
