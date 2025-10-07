@@ -304,8 +304,12 @@ class SonarQubeClient:
         return project
 
     async def get_custom_projects(
-        self, params: dict[str, Any] = {}, enrich_project: bool = False
+        self, params: Optional[dict[str, Any]] = None, enrich_project: bool = False
     ) -> AsyncGenerator[list[dict[str, Any]], None]:
+
+        if params is None:
+            params = {}
+
         if self.organization_id:
             params["organization"] = self.organization_id
 
@@ -361,7 +365,7 @@ class SonarQubeClient:
     async def get_issues_by_component(
         self,
         component: dict[str, Any],
-        query_params: dict[str, Any] = {},
+        query_params: Optional[dict[str, Any]] = None,
     ) -> AsyncGenerator[list[dict[str, Any]], None]:
         """
         Retrieve issues data across a single component (in this case, project) from SonarQube API.
@@ -370,6 +374,10 @@ class SonarQubeClient:
 
         :return (list[Any]): A list containing issues data for the specified component.
         """
+
+        if query_params is None:
+            query_params = {}
+
         component_key = component.get("key")
 
         if self.is_onpremise:
